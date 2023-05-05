@@ -1,0 +1,75 @@
+Query 1:
+with
+consecutive_days AS (
+  SELECT 
+    Cust_Id, 
+    Calendar_Dt, 
+    Amt_LE, 
+    (ROW_NUMBER() OVER (PARTITION BY Cust_Id ORDER BY Calendar_Dt)) as seq, 
+    DATE_ADD(Calendar_Dt, INTERVAL - (ROW_NUMBER() OVER (PARTITION BY Cust_Id ORDER BY Calendar_Dt)) DAY) AS grp
+  FROM transactions
+),
+max_consecutive_days AS (
+  SELECT 
+    Cust_Id,
+    Calendar_Dt, 
+    Amt_LE, 
+    seq,
+    grp,
+    COUNT(grp) over(partition by Cust_Id,grp) AS consecutive_days_count
+  FROM consecutive_days
+  WHERE Amt_LE > 0
+)
+SELECT Cust_Id, max(consecutive_days_count)
+FROM max_consecutive_days
+group by Cust_Id;
+
+Query 2:
+with cte as(
+select cust_id,calendar_dt,amt_le,sum(amt_le) over(partition by Cust_Id order by Calendar_Dt) as total_amount
+from transactions)
+, cte2 as(
+select *,case when total_amount >= 250 then 1 else 0 end as reached_threshold
+from cte
+where total_amount >= 250
+),
+cte22 as (SELECT cust_id, min(cte2.calendar_dt) final_date
+FROM  cte2
+group by cust_id),
+cte1 as(
+select *,case when total_amount >= 250 then 1 else 0 end as reached_threshold
+from cte
+where total_amount <250 
+),cte11 as(SELECT cust_id, min(cte1.calendar_dt) first_date
+FROM  cte1
+group by cust_id
+),
+final as (select c1.cust_id, datediff(final_date , first_date) as days_before_reaching_threshold
+from cte11 c1 ,cte22 c2
+where c1.cust_id = c2.cust_id)
+select avg(days_before_reaching_threshold) as total_avg_days_before_reaching_threshold
+from final
+;
+
+query 3:
+Another answer:
+with cte as(
+select cust_id,calendar_dt,amt_le,sum(amt_le) over(partition by Cust_Id order by Calendar_Dt) as total_amount
+from transactions)
+, cte2 as(
+select *,case when total_amount >= 250 then 1 else 0 end as reached_threshold
+from cte
+where total_amount >= 250
+),
+cte1 as(
+select *,case when total_amount >= 250 then 1 else 0 end as before_reached_threshold
+from cte
+where total_amount <250 
+),
+final as (select c1.cust_id, count(before_reached_threshold) as Transaction_before_reaching_threshold
+from cte1 c1 
+where c1.cust_id in (select cust_id from cte2)
+group by c1.cust_id)
+select *
+from final
+;

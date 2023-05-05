@@ -1,0 +1,71 @@
+------->Monetary Model Query
+
+with r as (select customer_id , ceil(TIMESTAMPDIFF(hour, last_purchase, reference_date)/24) as recency from 
+(select distinct customer_id ,first_value(invoicedate) over(order by invoicedate desc)  as reference_date
+, first_value(invoicedate) over(partition by customer_id order by invoicedate desc) as last_purchase
+from table_retail) x
+),
+f as ( 
+select Customer_ID,frequency, ntile(5) over(order by frequency ) as f_score from
+(select customer_id ,count(invoicedate)  as frequency
+from table_retail 
+group by customer_id) y ) ,
+
+m as (
+select Customer_ID, monetary, ntile(5) over(order by monetary ) as m_score from
+(select  distinct customer_id , round (sum(quantity * price) over (partition by customer_id),2) as monetary
+from table_retail) z ), 
+
+n as (select customer_id, recency,CASE 
+           WHEN recency <= 60 THEN 5 
+           WHEN recency <= 90 THEN 4 
+           WHEN recency <= 130 THEN 3 
+           WHEN recency <= 180 THEN 2 
+           ELSE 1 
+       END AS r_score
+from r),
+
+final as (select r.customer_id , r.recency,frequency, monetary, r_score, /*f_score,m_score,*/ truncate((f_score + m_score)/2,0)  as fm_score from r , f , m , n
+where r.customer_id = f.customer_id and f.customer_id=m.customer_id and m.customer_id= n.customer_id)
+
+select *, Case 
+when r_score >= 5 and fm_score >= 5
+or   r_score >= 5 and fm_score =4 
+or   r_score = 4  and fm_score >= 5 then 'Champions'
+
+when r_score >= 5 and fm_score = 2
+or   r_score = 4 and fm_score = 2 
+or   r_score = 3 and fm_score = 3
+or   r_score = 4  and fm_score >= 3 then 'Potential Loyalists'
+
+when r_score >= 5 and fm_score = 3
+or   r_score = 4 and fm_score = 4 
+or   r_score = 3 and fm_score >= 5
+or   r_score = 3  and fm_score >= 4 then 'Loyal Customers'
+
+when r_score >= 5 and fm_score = 1 then 'Recent Customers'
+
+when r_score = 4 and fm_score = 1
+or   r_score = 3  and fm_score = 1 then 'Promising'
+
+when r_score = 3 and fm_score = 2
+or   r_score = 2 and fm_score = 3 
+or   r_score = 2  and fm_score = 2 then 'Customers Needing Attention'
+
+when r_score = 2 and fm_score >= 5
+or   r_score = 2 and fm_score = 4 
+or   r_score = 1  and fm_score = 3 then 'At Risk'
+
+when r_score = 1 and fm_score >= 5
+or   r_score = 1  and fm_score = 4 then 'Cant Lose Them'
+
+when r_score = 1 and fm_score = 2 
+or   r_score = 2  and fm_score = 1 then 'Hibernating'
+
+when r_score = 1  and fm_score <= 1 then 'Lost'
+End  cust_segment 
+from final
+
+
+
+

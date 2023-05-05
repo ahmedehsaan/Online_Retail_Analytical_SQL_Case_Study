@@ -1,0 +1,82 @@
+-----> Query 1<------
+
+WITH cte AS (SELECT country, FORMAT(country_revenue, '#,###.##') AS revenue,
+    RANK() OVER (ORDER BY country_revenue DESC) AS country_rnk
+  FROM ( SELECT DISTINCT   country, 
+     ROUND(SUM(quantity * price) OVER (PARTITION BY country)) AS country_revenue
+    FROM table_retail  ) x)
+SELECT * FROM cte 
+WHERE country_rnk <= 10;
+
+-----> Query 2 <------
+
+
+select StockCode , FORMAT(product_sales, '#,###.##') product_sales ,rank() over(order by product_sales desc) as product_rnk
+ from (select distinct StockCode , 
+round(sum(quantity * price) over(partition by StockCode)) as product_sales
+from table_retail) x
+order by product_rnk
+limit 10;
+
+-----> Query 3 <------
+
+select distinct StockCode , round(sum(quantity ) over(partition by StockCode)) as Quantity_sold
+from table_retail
+where quantity > 0
+order by Quantity_sold desc
+limit 5;
+
+-----> Query 4<------
+with cte as (select month,total_sales, lead(total_sales) over(order by month desc) as last_month_sales from
+(select  distinct Extract(month from invoicedate) as month,
+ round(sum((price * quantity)) over(partition by Extract(month from invoicedate))) total_sales	
+from table_retail
+where quantity > 0 and Extract(year from invoicedate) = '2011' ) y
+order by month desc)
+
+select *,concat(round(((total_sales - last_month_sales)/last_month_sales) *100  ,2), '%') "sales_change_over_months" 
+from cte;
+
+-----> Query 5<------
+
+WITH customer_sales AS (
+  SELECT 
+    customer_id, 
+    country, 
+    ROUND(SUM(quantity * price), 2) AS total_sales
+  FROM table_retail
+  GROUP BY customer_id, country
+),
+ranked_sales AS (
+  SELECT 
+    customer_id, 
+    country, 
+    total_sales, 
+    ROW_NUMBER() OVER(PARTITION BY country ORDER BY total_sales DESC) AS sales_rank
+  FROM customer_sales
+)
+SELECT 
+  country, 
+  customer_id, 
+  total_sales, sales_rank
+FROM ranked_sales
+WHERE sales_rank <= 3
+ORDER BY country, total_sales DESC;
+
+
+-----> Query 6<------
+SELECT customer_id, total_sales
+FROM (
+    SELECT customer_id, ROUND(SUM(quantity * price)) AS total_sales, 
+           NTILE(5) OVER (ORDER BY ROUND(SUM(quantity * price)) DESC) AS percentile
+    FROM table_retail
+    group by customer_id
+) AS x
+WHERE percentile = 1;
+
+-----> Query 7<------
+
+select  distinct country , year, count(*) over(partition by year, country) number_of_orders
+from (select distinct invoice , Extract(year from cast(invoicedate as date)) as year , country 
+from table_retail) X
+order by 1 , 2;
